@@ -58,7 +58,7 @@
   *{box-sizing:border-box;}
   html,body{margin:0;padding:0;}
   body{
-    background: radial-gradient(130% 90% at 50% 0%, var(--bg-deep) 0%, var(--bg) 100%);
+    background: radial-gradient(130% 90% at 50% 0%, var(--bg-deep) 0%, var(--bg) 60%);
     color: var(--ink);
     font-family: var(--font-body);
     min-height: 100vh;
@@ -381,7 +381,7 @@
   .status-banner{ text-align:center; font-size: 13px; color: var(--ink-soft); margin-top: 14px; min-height: 18px; }
 
   /* ---------- review ---------- */
-  .review-photo{ border-radius: var(--radius-lg); overflow:hidden; box-shadow: var(--shadow); aspect-ratio: 3/4; background: var(--blush-soft); }
+  .review-photo{ border-radius: var(--radius-lg); overflow:hidden; box-shadow: var(--shadow); aspect-ratio: 4/3; background: var(--blush-soft); }
   .review-photo img{ width:100%; height:100%; object-fit:cover; display:block; }
   .peer-check-list{ margin: 18px 0; }
   .peer-check-row{ display:flex; align-items:center; gap:10px; padding: 7px 0; font-size: 14px; }
@@ -444,7 +444,7 @@
       </div>
       <div class="mock-strip reveal">
         <div class="mock-frame">
-    <div class="strip">
+          <div class="strip">
             <div class="mock-cell"><img src="images/1.jpg" alt="" onerror="this.remove()"></div>
             <div class="mock-cell"><img src="images/strip2.png" alt="" onerror="this.remove()"></div>
             <div class="mock-cell"><img src="images/strip1.png" alt="" onerror="this.remove()"></div>
@@ -731,6 +731,7 @@
     photoIndex: 0,
     frameType: 'simple',
     countdownTimer: null,
+    shutterWatchdog: null,
     lastCapturedDataUrl: null,
     tracker: null,          // MediaPipe FaceLandmarker instance
     trackerLoading: false,
@@ -1097,6 +1098,19 @@
   });
 
   /* ============ camera flow ============ */
+  /* Always route back into the camera screen through here: it guarantees the
+     shutter button is clickable again and that the preview <video> is actually
+     playing (Safari/iOS can silently pause a <video> once its screen is
+     display:none, and it won't resume on its own when the screen re-shows). */
+  function enterCameraScreen(opts){
+    goTo('screen-camera', opts);
+    clearTimeout(state.shutterWatchdog);
+    $('btnShutter').disabled = false;
+    const video = $('cameraVideo');
+    if(video && video.srcObject && video.paused){
+      video.play().catch(()=>{ /* will retry via loadedmetadata/user gesture */ });
+    }
+  }
   async function beginCameraFlow(isStarter){
     state.photoIndex = 0;
     state.room.photos[state.me.id] = [];
@@ -1134,7 +1148,7 @@
     }
   }
   $('btnCamRetry').addEventListener('click', async ()=>{
-    goTo('screen-camera', {replace:true});
+    enterCameraScreen({replace:true});
     await startCamera();
   });
   $('btnCheckSettings').addEventListener('click', ()=>{
@@ -1994,6 +2008,17 @@
     const timestamp = Date.now() + 400; // small buffer so both host/peers receive before start
     send({type:'countdownStart', timestamp, delay:0});
     runSynchronizedCountdown(timestamp);
+    // Safety net: if anything goes wrong between here and showReview() (a
+    // dropped frame, a promise that never resolves, etc.) the shutter used
+    // to stay disabled forever with no way back except restarting the whole
+    // booth. If we're still sitting on the camera screen a few seconds after
+    // the countdown should have fired, force it back on.
+    clearTimeout(state.shutterWatchdog);
+    state.shutterWatchdog = setTimeout(()=>{
+      if($('btnShutter').disabled && $('screen-camera').classList.contains('active')){
+        $('btnShutter').disabled = false;
+      }
+    }, 4000);
   });
 
   function runSynchronizedCountdown(timestamp){
@@ -2033,35 +2058,7 @@
       let filterStr = getCanvasFilterString();
       if(state.flashOn) filterStr += ' brightness(1.12)';
       ctx.filter = filterStr;
-
-      // Replicate the live preview's object-fit:cover crop so the captured
-      // photo matches what was actually shown on screen. Previously this
-      // stretched the *entire* raw video frame into the 4:3 canvas, which
-      // doesn't match the cropped live view whenever the camera's native
-      // aspect ratio isn't exactly 4:3 (the common cause of the capture
-      // looking more "zoomed" than the live preview).
-      const vw = video.videoWidth, vh = video.videoHeight;
-      if(vw && vh){
-        const targetRatio = canvas.width / canvas.height;
-        const srcRatio = vw / vh;
-        let sx, sy, sw, sh;
-        if(srcRatio > targetRatio){
-          // video is wider than the 4:3 frame -> crop the left/right edges
-          sh = vh;
-          sw = vh * targetRatio;
-          sx = (vw - sw) / 2;
-          sy = 0;
-        } else {
-          // video is taller than the 4:3 frame -> crop the top/bottom edges
-          sw = vw;
-          sh = vw / targetRatio;
-          sx = 0;
-          sy = (vh - sh) / 2;
-        }
-        ctx.drawImage(video, sx, sy, sw, sh, 0, 0, canvas.width, canvas.height);
-      } else {
-        ctx.drawImage(video, 0,0, canvas.width, canvas.height);
-      }
+      ctx.drawImage(video, 0,0, canvas.width, canvas.height);
       if(state.room.effect !== 'none'){
         ctx.filter = 'none';
         ctx.drawImage(effectsCanvas, 0,0, canvas.width, canvas.height);
@@ -2111,8 +2108,7 @@
     send({type:'photoStatus', id: state.me.id, status:'retaking'});
     updatePeerStripStatus(state.me.id, 'retaking');
     updateCameraProgress();
-    $('btnShutter').disabled = false;
-    goTo('screen-camera', {replace:true});
+    enterCameraScreen({replace:true});
   });
   $('btnUsePhoto').addEventListener('click', ()=>{
     state.room.photos[state.me.id][state.photoIndex] = state.lastCapturedDataUrl;
@@ -2131,8 +2127,7 @@
     } else {
       state.photoIndex = next;
       updateCameraProgress();
-      $('btnShutter').disabled = false;
-      goTo('screen-camera', {replace:true});
+      enterCameraScreen({replace:true});
     }
   });
 
@@ -2269,7 +2264,7 @@
   $('btnRetakeAll').addEventListener('click', ()=>{
     state.photoIndex = 0;
     state.room.photos[state.me.id] = [];
-    goTo('screen-camera', {replace:true});
+    enterCameraScreen({replace:true});
   });
   $('btnCreateAnother').addEventListener('click', ()=>{
     if(state.channel){ send({type:'leave', id: state.me.id}); state.channel.close(); state.channel=null; }
