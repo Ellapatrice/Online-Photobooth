@@ -58,7 +58,7 @@
   *{box-sizing:border-box;}
   html,body{margin:0;padding:0;}
   body{
-    background: radial-gradient(130% 90% at 50% 0%, var(--bg-deep) 0%, var(--bg) 60%);
+    background: radial-gradient(130% 90% at 50% 0%, var(--bg-deep) 0%, var(--bg) 100%);
     color: var(--ink);
     font-family: var(--font-body);
     min-height: 100vh;
@@ -416,7 +416,7 @@
 <div id="app">
 
   <div class="top-nav" id="topNav">
-    <div class="brand"><span class="brand-dot"></span>Ella Patrice Vasquez</div>
+    <div class="brand"><span class="brand-dot"></span>Ella Patrice</div>
     <button class="back-btn" id="backBtn" aria-label="Go back" style="display:none;">
       <svg width="16" height="16" viewBox="0 0 24 24" fill="none"><path d="M15 18l-6-6 6-6" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/></svg>
     </button>
@@ -439,20 +439,20 @@
     <div class="hero">
       <div class="hero-copy">
         <div class="eyebrow reveal">Online Photobooth</div>
-        <h1 class="reveal">Capture the moment..</h1>
-        <p class="sub reveal">Take some pictures, make some memories, and leave with a moment you can keep forever. ♡</p>
+        <h1 class="reveal">Make memories together.</h1>
+        <p class="sub reveal">Take photos, share a room, and create your perfect photobooth strip — together, wherever you are.</p>
       </div>
       <div class="mock-strip reveal">
         <div class="mock-frame">
           <div class="strip">
             <div class="mock-cell"><img src="images/1.jpg" alt="" onerror="this.remove()"></div>
-            <div class="mock-cell"><img src="images/strip2.png" alt="" onerror="this.remove()"></div>
-            <div class="mock-cell"><img src="images/strip1.png" alt="" onerror="this.remove()"></div>
+            <div class="mock-cell"><img src="images/photo2.jpg" alt="" onerror="this.remove()"></div>
+            <div class="mock-cell"><img src="images/photo3.jpg" alt="" onerror="this.remove()"></div>
           </div>
           <div class="strip">
-            <div class="mock-cell"><img src="images/2.jpg" alt="" onerror="this.remove()"></div>
-            <div class="mock-cell"><img src="images/strip5.png" alt="" onerror="this.remove()"></div>
-            <div class="mock-cell"><img src="images/strip4.png" alt="" onerror="this.remove()"></div>
+            <div class="mock-cell"><img src="images/photo4.jpg" alt="" onerror="this.remove()"></div>
+            <div class="mock-cell"><img src="images/photo5.jpg" alt="" onerror="this.remove()"></div>
+            <div class="mock-cell"><img src="images/photo6.jpg" alt="" onerror="this.remove()"></div>
           </div>
         </div>
       </div>
@@ -2033,7 +2033,35 @@
       let filterStr = getCanvasFilterString();
       if(state.flashOn) filterStr += ' brightness(1.12)';
       ctx.filter = filterStr;
-      ctx.drawImage(video, 0,0, canvas.width, canvas.height);
+
+      // Replicate the live preview's object-fit:cover crop so the captured
+      // photo matches what was actually shown on screen. Previously this
+      // stretched the *entire* raw video frame into the 4:3 canvas, which
+      // doesn't match the cropped live view whenever the camera's native
+      // aspect ratio isn't exactly 4:3 (the common cause of the capture
+      // looking more "zoomed" than the live preview).
+      const vw = video.videoWidth, vh = video.videoHeight;
+      if(vw && vh){
+        const targetRatio = canvas.width / canvas.height;
+        const srcRatio = vw / vh;
+        let sx, sy, sw, sh;
+        if(srcRatio > targetRatio){
+          // video is wider than the 4:3 frame -> crop the left/right edges
+          sh = vh;
+          sw = vh * targetRatio;
+          sx = (vw - sw) / 2;
+          sy = 0;
+        } else {
+          // video is taller than the 4:3 frame -> crop the top/bottom edges
+          sw = vw;
+          sh = vw / targetRatio;
+          sx = 0;
+          sy = (vh - sh) / 2;
+        }
+        ctx.drawImage(video, sx, sy, sw, sh, 0, 0, canvas.width, canvas.height);
+      } else {
+        ctx.drawImage(video, 0,0, canvas.width, canvas.height);
+      }
       if(state.room.effect !== 'none'){
         ctx.filter = 'none';
         ctx.drawImage(effectsCanvas, 0,0, canvas.width, canvas.height);
