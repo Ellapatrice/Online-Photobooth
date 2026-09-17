@@ -536,9 +536,9 @@
       <div class="mock-strip reveal">
         <div class="mock-frame">
           <div class="strip">
-            <div class="mock-cell"><img src="images/strip1.png" alt="" onerror="this.remove()"></div>
-            <div class="mock-cell"><img src="images/strip2.png" alt="" onerror="this.remove()"></div>
             <div class="mock-cell"><img src="images/1.jpg" alt="" onerror="this.remove()"></div>
+            <div class="mock-cell"><img src="images/strip2.png" alt="" onerror="this.remove()"></div>
+            <div class="mock-cell"><img src="images/strip1.png" alt="" onerror="this.remove()"></div>
           </div>
           <div class="strip">
             <div class="mock-cell"><img src="images/2.jpg" alt="" onerror="this.remove()"></div>
@@ -1387,6 +1387,7 @@
       $('camPlaceholder').style.display = 'none';
       $('cameraVideo').addEventListener('loadedmetadata', onVideoMetadata, {once:true});
       updateMirrorClass();
+      if(state.flashOn) await applyTorch(true); // carry flash state onto the new track (e.g. after flipping camera)
     }catch(err){
       $('camPlaceholder').style.display = 'flex';
       goTo('screen-error-camera');
@@ -1453,9 +1454,25 @@
   }
 
   /* ---------- flash toggle ---------- */
-  $('btnFlash').addEventListener('click', ()=>{
+  /* Real hardware flashlight control is only exposed by browsers on rear
+     cameras with a 'torch' capability (mainly Chrome on Android) — there's
+     no torch API in Safari/iOS at all, and front cameras have no physical
+     flash to control. So: try the real torch when the current track
+     supports it, and always keep the screen-flash (bright white overlay +
+     brightness boost) as the fallback so flash still visually works on
+     every device, including front-camera selfies. */
+  async function applyTorch(on){
+    const track = state.localStream && state.localStream.getVideoTracks()[0];
+    if(!track || !track.getCapabilities) return false;
+    const caps = track.getCapabilities();
+    if(!caps.torch) return false;
+    try{ await track.applyConstraints({ advanced: [{ torch: on }] }); return true; }
+    catch(e){ return false; }
+  }
+  $('btnFlash').addEventListener('click', async ()=>{
     state.flashOn = !state.flashOn;
     $('btnFlash').classList.toggle('active', state.flashOn);
+    await applyTorch(state.flashOn);
   });
 
   /* ---------- filter / effect carousel panels ---------- */
@@ -2623,7 +2640,7 @@
     const loader = document.getElementById('pageLoader');
     if(!loader) return;
     const shownAt = Date.now();
-    const MIN_MS = 2000; // avoid a flash on fast connections
+    const MIN_MS = 3000; // avoid a flash on fast connections
     function hide(){
       const wait = Math.max(0, MIN_MS - (Date.now() - shownAt));
       setTimeout(() => {
