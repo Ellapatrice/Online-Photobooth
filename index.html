@@ -1000,11 +1000,18 @@
         state.room.layout = t.layout;
         state.room.photoCount = t.photos;
         renderTemplates();
-        $('btnTemplateContinue').disabled = false;
       });
       hydrateTemplateImages(card);
       grid.appendChild(card);
     });
+    // Continue may only ever be tappable when the selected template is one
+    // of the cards actually on screen right now. Without this check,
+    // picking a card in one category tab and then switching to another
+    // left Continue enabled with nothing visibly selected, silently
+    // carrying forward a layout choice from a tab you're no longer even
+    // looking at. Recomputing this on every render (tab switch or card
+    // click) keeps the button truthful to what's on screen.
+    $('btnTemplateContinue').disabled = !items.some(t => t.id === selectedTemplateId);
   }
   /* Preview photos for the layout picker only. These are free Pexels stock
      photos (free to use, no attribution required) served from the Pexels CDN,
