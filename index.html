@@ -88,6 +88,10 @@
   :focus-visible{ outline: 2.5px solid var(--rose-deep); outline-offset: 3px; border-radius: 6px; }
 
   #app{ max-width: 480px; margin: 0 auto; min-height: 100vh; position: relative; padding: env(safe-area-inset-top) 20px env(safe-area-inset-bottom); }
+  /* ---------- edge-swipe-to-go-back (iOS/Android gesture parity) ---------- */
+  #app.gesture-active{ overflow:hidden; }
+  .screen.gesture-current{ position:relative; z-index:2; background: var(--bg, #fff); will-change: transform; box-shadow: -10px 0 28px rgba(0,0,0,0.14); }
+  .screen.gesture-previous{ position:absolute; top:0; left:0; right:0; z-index:1; display:block; pointer-events:none; will-change: transform, opacity; }
   @media (min-width: 860px){
     #app{ max-width: 760px; }
   }
@@ -745,6 +749,11 @@
     arRunning: false,
   };
 
+  // Seed a base history entry for the app's single starting screen, so the
+  // very first internal push (state.screenStack.length 1 -> 2) has a real
+  // "screen-landing" entry underneath it to pop back to.
+  history.replaceState({depth: 1}, '', '#screen-landing');
+
   /* ============ navigation ============ */
   const SCREEN_STEP = {
     'screen-templates': 'style',
@@ -788,18 +797,42 @@
     if(shutter) shutter.disabled = false;
   }
 
+  /* ============ navigation: shared back-stack + native gesture wiring ============
+     Every "screen" the app has ever pushed also gets a matching browser
+     history entry (via pushState/replaceState). That's what lets Android's
+     hardware/gesture back button drive our SAME internal stack instead of
+     just closing the PWA or landing on a blank page: the OS-level back
+     action fires a normal 'popstate' event, which we listen for below.
+     `suppressNextPopstate` exists because performBack() itself calls
+     history.back() (to keep the real history stack in sync when the user
+     taps our on-screen back button or swipes), and that call *also* fires
+     a popstate — this flag tells that handler "already handled, skip it"
+     so we never pop the internal stack twice for one back action. */
+  let suppressNextPopstate = false;
+
   function goTo(id, opts){
     opts = opts || {};
     if(id === 'screen-camera') resetShutterState();
     qsa('.screen').forEach(s => s.classList.remove('active'));
     $(id).classList.add('active');
-    if(!opts.replace){ state.screenStack.push(id); }
-    else { state.screenStack[state.screenStack.length-1] = id; }
+    if(!opts.replace){
+      state.screenStack.push(id);
+      history.pushState({depth: state.screenStack.length}, '', '#' + id);
+    } else {
+      state.screenStack[state.screenStack.length-1] = id;
+      history.replaceState({depth: state.screenStack.length}, '', '#' + id);
+    }
     $('backBtn').style.display = (state.screenStack.length > 1 && opts.noBack !== true) ? 'flex' : 'none';
     updateStepper(id);
     window.scrollTo(0,0);
   }
-  $('backBtn').addEventListener('click', ()=>{
+
+  /* The single place that actually moves back one screen — used by the
+     header back button, the edge-swipe gesture, AND real OS back actions
+     (hardware button / Android's swipe-from-edge). `fromPopstate` is true
+     only when the browser already moved history for us (a genuine OS back),
+     so we don't call history.back() a second time in that case. */
+  function performBack(fromPopstate){
     if(state.screenStack.length <= 1) return;
     if($('screen-camera').classList.contains('active')) resetShutterState();
     state.screenStack.pop();
@@ -808,7 +841,118 @@
     $(prev).classList.add('active');
     $('backBtn').style.display = state.screenStack.length > 1 ? 'flex' : 'none';
     updateStepper(prev);
+    window.scrollTo(0,0);
+    if(!fromPopstate){
+      suppressNextPopstate = true;
+      history.back();
+    }
+  }
+
+  window.addEventListener('popstate', ()=>{
+    if(suppressNextPopstate){ suppressNextPopstate = false; return; }
+    performBack(true);
   });
+
+  $('backBtn').addEventListener('click', ()=> performBack(false));
+
+  /* ---------- edge-swipe-to-go-back ----------
+     Mirrors iOS's UINavigationController interactive-pop gesture: start a
+     touch within a thin zone on the left screen edge, drag right, and the
+     current screen follows your finger (with the previous screen peeking
+     in behind it, parallax-style) — release past a distance/velocity
+     threshold to commit, or it snaps back if you let go early or the
+     gesture turns out to be a vertical scroll instead. This is purely a
+     visual/gesture layer; on commit it hands off to the exact same
+     performBack() the header button and Android's own back action use, so
+     the three stay perfectly in sync. */
+  (function setupEdgeSwipeBack(){
+    const EDGE_ZONE = 28;       // px from the left edge the gesture must start in
+    const COMMIT_DISTANCE = 0.32; // fraction of screen width to auto-complete
+    const COMMIT_VELOCITY = 0.5;  // px/ms flick speed to auto-complete even if short
+
+    let tracking = false, decided = false;
+    let startX = 0, startY = 0, lastX = 0, lastT = 0, velocity = 0;
+    let appEl = null, curEl = null, prevEl = null, width = 0;
+
+    function onStart(e){
+      if(state.screenStack.length < 2) return; // nothing behind this screen to reveal
+      const t = e.touches[0];
+      if(t.clientX > EDGE_ZONE) return;
+      tracking = true; decided = false;
+      startX = lastX = t.clientX; startY = t.clientY; lastT = performance.now();
+      velocity = 0;
+      appEl = document.getElementById('app');
+      curEl = $(state.screenStack[state.screenStack.length-1]);
+      const prevId = state.screenStack[state.screenStack.length-2];
+      prevEl = prevId ? $(prevId) : null;
+      width = appEl.clientWidth || window.innerWidth;
+    }
+
+    function beginVisualDrag(){
+      if(prevEl){ prevEl.classList.add('gesture-previous'); }
+      if(curEl){ curEl.classList.add('gesture-current'); }
+      appEl.classList.add('gesture-active');
+    }
+
+    function onMove(e){
+      if(!tracking) return;
+      const t = e.touches[0];
+      const dx = t.clientX - startX;
+      const dy = t.clientY - startY;
+      if(!decided){
+        // Bail out early if this reads as a vertical scroll, not a back-swipe.
+        if(Math.abs(dy) > 10 && Math.abs(dy) > Math.abs(dx)){ tracking = false; return; }
+        if(dx < 4) return; // wait for real rightward intent before committing to the gesture
+        decided = true;
+        beginVisualDrag();
+      }
+      const now = performance.now();
+      if(now > lastT) velocity = (t.clientX - lastX) / (now - lastT);
+      lastX = t.clientX; lastT = now;
+      const clamped = Math.max(0, Math.min(dx, width));
+      curEl.style.transform = `translateX(${clamped}px)`;
+      if(prevEl){
+        const progress = clamped / width;
+        prevEl.style.transform = `translateX(${(-width * 0.28) * (1 - progress)}px)`;
+        prevEl.style.opacity = String(0.72 + 0.28 * progress);
+      }
+      e.preventDefault();
+    }
+
+    function onEnd(){
+      if(!tracking) return;
+      tracking = false;
+      if(!decided) return; // never left the "is this a scroll?" phase — nothing to clean up
+      const dx = Math.max(0, lastX - startX);
+      const commit = (width > 0 && dx / width > COMMIT_DISTANCE) || velocity > COMMIT_VELOCITY;
+      finish(commit);
+    }
+
+    function finish(commit){
+      const duration = 220;
+      if(curEl){
+        curEl.style.transition = `transform ${duration}ms cubic-bezier(.22,.68,0,1)`;
+        curEl.style.transform = commit ? `translateX(${width}px)` : 'translateX(0px)';
+      }
+      if(prevEl){
+        prevEl.style.transition = `transform ${duration}ms cubic-bezier(.22,.68,0,1), opacity ${duration}ms ease`;
+        prevEl.style.transform = commit ? 'translateX(0px)' : `translateX(${-width*0.28}px)`;
+        prevEl.style.opacity = commit ? '1' : '0.72';
+      }
+      setTimeout(()=>{
+        if(appEl) appEl.classList.remove('gesture-active');
+        if(curEl){ curEl.classList.remove('gesture-current'); curEl.style.transform=''; curEl.style.transition=''; }
+        if(prevEl){ prevEl.classList.remove('gesture-previous'); prevEl.style.transform=''; prevEl.style.transition=''; prevEl.style.opacity=''; }
+        curEl = prevEl = appEl = null;
+        if(commit) performBack(false);
+      }, duration);
+    }
+
+    document.addEventListener('touchstart', onStart, {passive:true});
+    document.addEventListener('touchmove', onMove, {passive:false});
+    document.addEventListener('touchend', onEnd, {passive:true});
+    document.addEventListener('touchcancel', ()=>{ if(tracking && decided) finish(false); tracking=false; }, {passive:true});
+  })();
 
   /* ============ landing ============ */
   $('btnCreateBooth').addEventListener('click', ()=>{
@@ -2373,6 +2517,10 @@
     $('screen-landing').classList.add('active');
     $('backBtn').style.display = 'none';
     updateStepper('screen-landing');
+    // Starting a fresh session collapses the internal stack back to one
+    // screen; re-seed history to match so a later OS back gesture/button
+    // maps onto this fresh stack instead of the previous session's depth.
+    history.replaceState({depth: 1}, '', '#screen-landing');
   });
 
   /* ============ theme respects system, no manual toggle needed ============ */
