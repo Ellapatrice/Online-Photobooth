@@ -1327,21 +1327,15 @@
     canvas.width  = Math.round(stage.clientWidth  * dpr);
     canvas.height = Math.round(stage.clientHeight * dpr);
   }
-  /* Make the preview box's aspect ratio match the actual camera frame
-     (video.videoWidth / video.videoHeight) instead of a hardcoded 4:3 box.
-     Combined with object-fit:contain above, this guarantees the preview
-     always shows the FULL, unzoomed, uncropped camera frame — matching
-     the capture exactly — instead of being forced into a differently-
-     shaped container that would crop or zoom the image. */
-  function syncStageAspect(){
-    const video = $('cameraVideo');
-    const vw = video.videoWidth, vh = video.videoHeight;
-    if(vw > 0 && vh > 0){
-      $('cameraStage').style.aspectRatio = vw + ' / ' + vh;
-    }
-  }
+  /* NOTE: the preview box size/aspect-ratio itself is intentionally left as
+     the existing fixed layout (see .camera-stage above) — we do NOT resize
+     the container to the camera's raw sensor ratio, since that can be very
+     tall on Android (e.g. ~9:16) and would shift the surrounding UI.
+     object-fit:contain on the <video> already guarantees the full,
+     un-cropped, un-zoomed frame is shown inside that fixed-size box
+     (letterboxed if the sensor ratio differs), which is what keeps the
+     preview matching the actual camera frame without touching layout. */
   function onVideoMetadata(){
-    syncStageAspect();
     sizeEffectsCanvas();
   }
   window.addEventListener('resize', ()=>{ if($('screen-camera').classList.contains('active')) sizeEffectsCanvas(); });
