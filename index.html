@@ -2043,28 +2043,19 @@
     tick();
   }
 
-  /* Given a source of size sw x sh, return the {sx,sy,sWidth,sHeight} crop
-     rectangle that produces the same result as CSS "object-fit: cover"
-     (object-position: center) when drawn into a dw x dh destination — i.e.
-     crop the longer axis symmetrically instead of stretching. This is the
-     same cover-crop math the AR face mapper (makeMapper) relies on, just
-     expressed the other direction: display box -> source rectangle. Used
-     when compositing captured photos (which can now be any aspect ratio)
-     into the fixed-size cells of the final photo strip, so they fill each
-     cell without being stretched/distorted. */
-  function coverSourceRect(sw, sh, dw, dh){
+  /* Given a source of size sw x sh, return the {x,y,width,height} rectangle
+     (in destination-space, dw x dh) that draws the ENTIRE source scaled to
+     fit without cropping — the same behaviour as CSS "object-fit: contain"
+     — leaving letterbox margins on the shorter axis instead of cutting
+     anything off. This keeps the final photo strip's framing/zoom
+     identical to the Shoot and Pick screens, which both use
+     object-fit:contain. */
+  function containDestRect(sw, sh, dw, dh){
     const srcRatio = sw / sh, dstRatio = dw / dh;
-    let sx = 0, sy = 0, sWidth = sw, sHeight = sh;
-    if(srcRatio > dstRatio){
-      // source is relatively wider than the destination -> crop the sides
-      sWidth = sh * dstRatio;
-      sx = (sw - sWidth) / 2;
-    } else if(srcRatio < dstRatio){
-      // source is relatively taller than the destination -> crop top/bottom
-      sHeight = sw / dstRatio;
-      sy = (sh - sHeight) / 2;
-    }
-    return { sx, sy, sWidth, sHeight };
+    let width = dw, height = dh;
+    if(srcRatio > dstRatio){ height = dw / srcRatio; }
+    else if(srcRatio < dstRatio){ width = dh * srcRatio; }
+    return { x: (dw - width) / 2, y: (dh - height) / 2, width, height };
   }
 
   function capturePhoto(){
@@ -2275,10 +2266,11 @@
       const img = new Image();
       img.onload = () => {
         const y = pad + i*(cellH+gap);
+        ctx.fillStyle = '#1c1618'; // same background as the Shoot/Pick screens, shows in any letterbox margin
         roundRect(ctx, pad, y, cellW, cellH, 16);
         ctx.save(); ctx.clip();
-        const { sx, sy, sWidth, sHeight } = coverSourceRect(img.width, img.height, cellW, cellH);
-        ctx.drawImage(img, sx, sy, sWidth, sHeight, pad, y, cellW, cellH);
+        const rect = containDestRect(img.width, img.height, cellW, cellH);
+        ctx.drawImage(img, pad + rect.x, y + rect.y, rect.width, rect.height);
         ctx.restore();
         loaded++;
         if(loaded === photos.length) drawFooter();
