@@ -304,7 +304,8 @@
   .photo-progress{ font-size: 12.5px; font-weight:700; color: var(--rose-deep); }
 
   .camera-stage{ position:relative; border-radius: var(--radius-lg); overflow:hidden; background: #1c1618; aspect-ratio: 4/3; box-shadow: var(--shadow); }
-  .camera-stage video{ width:100%; height:100%; object-fit:cover; transform: scaleX(-1); display:block; }
+  .camera-stage video{ width:100%; height:100%; object-fit:cover; display:block; }
+  .camera-stage video.mirror{ transform: scaleX(-1); }
   .camera-stage.f-natural video{ filter: brightness(1.04) saturate(1.05) contrast(1.01); }
   .camera-stage.f-soft video{ filter: brightness(1.08) contrast(0.94) saturate(0.97); }
   .camera-stage.f-blush video{ filter: brightness(1.06) saturate(1.12) hue-rotate(-4deg) contrast(0.97); }
@@ -381,7 +382,7 @@
   .status-banner{ text-align:center; font-size: 13px; color: var(--ink-soft); margin-top: 14px; min-height: 18px; }
 
   /* ---------- review ---------- */
-  .review-photo{ border-radius: var(--radius-lg); overflow:hidden; box-shadow: var(--shadow); aspect-ratio: 4/3; background: var(--blush-soft); }
+  .review-photo{ border-radius: var(--radius-lg); overflow:hidden; box-shadow: var(--shadow); aspect-ratio: 3/4; background: var(--blush-soft); }
   .review-photo img{ width:100%; height:100%; object-fit:cover; display:block; }
   .peer-check-list{ margin: 18px 0; }
   .peer-check-row{ display:flex; align-items:center; gap:10px; padding: 7px 0; font-size: 14px; }
@@ -524,7 +525,7 @@
     </div>
     <div class="shot-prompt" id="shotPrompt"><span class="try-tag">TRY</span><span id="shotPromptText"></span></div>
     <div class="camera-stage" id="cameraStage">
-      <video id="cameraVideo" autoplay playsinline muted></video>
+      <video id="cameraVideo" class="mirror" autoplay playsinline muted></video>
       <canvas id="effectsCanvas" class="mirror"></canvas>
       <div class="ar-hint" id="arHint"></div>
       <div class="cam-placeholder" id="camPlaceholder">
@@ -726,12 +727,12 @@
     localStream: null,
     currentFacing: 'user',
     currentDeviceId: null,
+    mirrored: true, // kept in sync with the live preview by updateMirrorClass()
     zoom: 1,
     flashOn: false,
     photoIndex: 0,
     frameType: 'simple',
     countdownTimer: null,
-    shutterWatchdog: null,
     lastCapturedDataUrl: null,
     tracker: null,          // MediaPipe FaceLandmarker instance
     trackerLoading: false,
@@ -1098,19 +1099,6 @@
   });
 
   /* ============ camera flow ============ */
-  /* Always route back into the camera screen through here: it guarantees the
-     shutter button is clickable again and that the preview <video> is actually
-     playing (Safari/iOS can silently pause a <video> once its screen is
-     display:none, and it won't resume on its own when the screen re-shows). */
-  function enterCameraScreen(opts){
-    goTo('screen-camera', opts);
-    clearTimeout(state.shutterWatchdog);
-    $('btnShutter').disabled = false;
-    const video = $('cameraVideo');
-    if(video && video.srcObject && video.paused){
-      video.play().catch(()=>{ /* will retry via loadedmetadata/user gesture */ });
-    }
-  }
   async function beginCameraFlow(isStarter){
     state.photoIndex = 0;
     state.room.photos[state.me.id] = [];
@@ -1148,7 +1136,7 @@
     }
   }
   $('btnCamRetry').addEventListener('click', async ()=>{
-    enterCameraScreen({replace:true});
+    goTo('screen-camera', {replace:true});
     await startCamera();
   });
   $('btnCheckSettings').addEventListener('click', ()=>{
@@ -1161,8 +1149,22 @@
     await startCamera();
   });
 
+  /* Single source of truth for "is the live preview mirrored right now?".
+     Prefer what the camera track itself reports (getSettings().facingMode),
+     since Android devices/browsers don't always honour the requested
+     facingMode exactly (this also covers deviceId-based lens switches,
+     e.g. the ultrawide button, which don't go through the facingMode
+     constraint at all). Fall back to the facing we asked for. */
+  function isPreviewMirrored(){
+    const track = state.localStream && state.localStream.getVideoTracks()[0];
+    const settings = (track && track.getSettings) ? track.getSettings() : null;
+    const facing = (settings && settings.facingMode) ? settings.facingMode : state.currentFacing;
+    return facing === 'user';
+  }
   function updateMirrorClass(){
-    const mirrored = state.currentFacing === 'user';
+    const mirrored = isPreviewMirrored();
+    state.mirrored = mirrored;
+    $('cameraVideo').classList.toggle('mirror', mirrored);
     $('effectsCanvas').classList.toggle('mirror', mirrored);
   }
 
@@ -2008,17 +2010,6 @@
     const timestamp = Date.now() + 400; // small buffer so both host/peers receive before start
     send({type:'countdownStart', timestamp, delay:0});
     runSynchronizedCountdown(timestamp);
-    // Safety net: if anything goes wrong between here and showReview() (a
-    // dropped frame, a promise that never resolves, etc.) the shutter used
-    // to stay disabled forever with no way back except restarting the whole
-    // booth. If we're still sitting on the camera screen a few seconds after
-    // the countdown should have fired, force it back on.
-    clearTimeout(state.shutterWatchdog);
-    state.shutterWatchdog = setTimeout(()=>{
-      if($('btnShutter').disabled && $('screen-camera').classList.contains('active')){
-        $('btnShutter').disabled = false;
-      }
-    }, 4000);
   });
 
   function runSynchronizedCountdown(timestamp){
@@ -2041,6 +2032,27 @@
     tick();
   }
 
+  /* Given a source of size sw x sh, return the {sx,sy,sWidth,sHeight} crop
+     rectangle that produces the same result as CSS "object-fit: cover"
+     (object-position: center) when drawn into a dw x dh destination — i.e.
+     crop the longer axis symmetrically instead of stretching. This is the
+     same cover-crop math the AR face mapper (makeMapper) already relies on,
+     just expressed the other direction: display box -> source rectangle. */
+  function coverSourceRect(sw, sh, dw, dh){
+    const srcRatio = sw / sh, dstRatio = dw / dh;
+    let sx = 0, sy = 0, sWidth = sw, sHeight = sh;
+    if(srcRatio > dstRatio){
+      // source is relatively wider than the destination -> crop the sides
+      sWidth = sh * dstRatio;
+      sx = (sw - sWidth) / 2;
+    } else if(srcRatio < dstRatio){
+      // source is relatively taller than the destination -> crop top/bottom
+      sHeight = sw / dstRatio;
+      sy = (sh - sHeight) / 2;
+    }
+    return { sx, sy, sWidth, sHeight };
+  }
+
   function capturePhoto(){
     const video = $('cameraVideo');
     const effectsCanvas = $('effectsCanvas');
@@ -2052,16 +2064,25 @@
     const size = 640;
     canvas.width = size; canvas.height = size * 3/4;
     const ctx = canvas.getContext('2d');
-    const mirrored = state.currentFacing === 'user';
+    // Mirror the capture exactly when (and only when) the live preview is
+    // mirrored — never mirror twice, never mirror only one of the two.
+    const mirrored = isPreviewMirrored();
     if(mirrored){ ctx.translate(canvas.width,0); ctx.scale(-1,1); } // mirror to match preview
     try{
-      let filterStr = getCanvasFilterString();
-      if(state.flashOn) filterStr += ' brightness(1.12)';
-      ctx.filter = filterStr;
-      ctx.drawImage(video, 0,0, canvas.width, canvas.height);
-      if(state.room.effect !== 'none'){
-        ctx.filter = 'none';
-        ctx.drawImage(effectsCanvas, 0,0, canvas.width, canvas.height);
+      const vw = video.videoWidth, vh = video.videoHeight;
+      if(vw > 0 && vh > 0){
+        // Use the actual camera frame dimensions (never CSS/client size) and
+        // replicate the exact object-fit:cover crop the <video> shows, so
+        // field of view, zoom and framing match the live preview precisely.
+        const { sx, sy, sWidth, sHeight } = coverSourceRect(vw, vh, canvas.width, canvas.height);
+        let filterStr = getCanvasFilterString();
+        if(state.flashOn) filterStr += ' brightness(1.12)';
+        ctx.filter = filterStr;
+        ctx.drawImage(video, sx, sy, sWidth, sHeight, 0, 0, canvas.width, canvas.height);
+        if(state.room.effect !== 'none'){
+          ctx.filter = 'none';
+          ctx.drawImage(effectsCanvas, 0,0, canvas.width, canvas.height);
+        }
       }
     }catch(e){ /* video may not be ready */ }
     const dataUrl = canvas.toDataURL('image/jpeg', 0.92);
@@ -2108,7 +2129,8 @@
     send({type:'photoStatus', id: state.me.id, status:'retaking'});
     updatePeerStripStatus(state.me.id, 'retaking');
     updateCameraProgress();
-    enterCameraScreen({replace:true});
+    $('btnShutter').disabled = false;
+    goTo('screen-camera', {replace:true});
   });
   $('btnUsePhoto').addEventListener('click', ()=>{
     state.room.photos[state.me.id][state.photoIndex] = state.lastCapturedDataUrl;
@@ -2127,7 +2149,8 @@
     } else {
       state.photoIndex = next;
       updateCameraProgress();
-      enterCameraScreen({replace:true});
+      $('btnShutter').disabled = false;
+      goTo('screen-camera', {replace:true});
     }
   });
 
@@ -2264,7 +2287,7 @@
   $('btnRetakeAll').addEventListener('click', ()=>{
     state.photoIndex = 0;
     state.room.photos[state.me.id] = [];
-    enterCameraScreen({replace:true});
+    goTo('screen-camera', {replace:true});
   });
   $('btnCreateAnother').addEventListener('click', ()=>{
     if(state.channel){ send({type:'leave', id: state.me.id}); state.channel.close(); state.channel=null; }
