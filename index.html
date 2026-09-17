@@ -304,7 +304,7 @@
   .photo-progress{ font-size: 12.5px; font-weight:700; color: var(--rose-deep); }
 
   .camera-stage{ position:relative; border-radius: var(--radius-lg); overflow:hidden; background: #1c1618; aspect-ratio: 4/3; box-shadow: var(--shadow); }
-  .camera-stage video{ width:100%; height:100%; object-fit:contain; display:block; }
+  .camera-stage video{ width:100%; height:100%; object-fit:cover; object-position:center; display:block; }
   .camera-stage video.mirror{ transform: scaleX(-1); }
   .camera-stage.f-natural video{ filter: brightness(1.04) saturate(1.05) contrast(1.01); }
   .camera-stage.f-soft video{ filter: brightness(1.08) contrast(0.94) saturate(0.97); }
@@ -1331,10 +1331,11 @@
      the existing fixed layout (see .camera-stage above) — we do NOT resize
      the container to the camera's raw sensor ratio, since that can be very
      tall on Android (e.g. ~9:16) and would shift the surrounding UI.
-     object-fit:contain on the <video> already guarantees the full,
-     un-cropped, un-zoomed frame is shown inside that fixed-size box
-     (letterboxed if the sensor ratio differs), which is what keeps the
-     preview matching the actual camera frame without touching layout. */
+     object-fit:cover on the <video> fills that fixed-size box edge-to-edge
+     (like every native camera app), cropping whatever the sensor ratio
+     doesn't share with the 4:3 box instead of letterboxing it. capturePhoto()
+     below crops the saved frame the same way, so the photo is a true match
+     of what was on screen (no surprise extra field of view in the output). */
   function onVideoMetadata(){
     sizeEffectsCanvas();
   }
@@ -2047,15 +2048,28 @@
      (in destination-space, dw x dh) that draws the ENTIRE source scaled to
      fit without cropping — the same behaviour as CSS "object-fit: contain"
      — leaving letterbox margins on the shorter axis instead of cutting
-     anything off. This keeps the final photo strip's framing/zoom
-     identical to the Shoot and Pick screens, which both use
-     object-fit:contain. */
+     anything off. Used for fitting already-cropped photos into slots that
+     may have a slightly different ratio (e.g. the final strip layout). */
   function containDestRect(sw, sh, dw, dh){
     const srcRatio = sw / sh, dstRatio = dw / dh;
     let width = dw, height = dh;
     if(srcRatio > dstRatio){ height = dw / srcRatio; }
     else if(srcRatio < dstRatio){ width = dh * srcRatio; }
     return { x: (dw - width) / 2, y: (dh - height) / 2, width, height };
+  }
+
+  /* Given a source of size sw x sh, return the {x,y,width,height} rectangle
+     to READ from that source so it fills a dw x dh destination with no
+     empty space — the same behaviour as CSS "object-fit: cover". Cropping
+     the source (not the destination) this way is what keeps a captured
+     photo's framing identical to the live preview, which itself uses
+     object-fit:cover inside the fixed-ratio .camera-stage box. */
+  function coverSrcRect(sw, sh, dw, dh){
+    const srcRatio = sw / sh, dstRatio = dw / dh;
+    let width = sw, height = sh;
+    if(srcRatio > dstRatio){ width = sh * dstRatio; }
+    else if(srcRatio < dstRatio){ height = sw / dstRatio; }
+    return { x: (sw - width) / 2, y: (sh - height) / 2, width, height };
   }
 
   function capturePhoto(){
@@ -2068,16 +2082,15 @@
     const canvas = document.createElement('canvas');
     const vw = video.videoWidth, vh = video.videoHeight;
     const maxDim = 640;
-    // Size the output canvas to the SAME aspect ratio as the actual camera
-    // frame (never a hardcoded 4:3/16:9 guess), matching the live preview
-    // which now also displays the full, uncropped frame via
-    // object-fit:contain + a dynamically-matched stage aspect ratio.
-    if(vw > 0 && vh > 0){
-      if(vw >= vh){ canvas.width = maxDim; canvas.height = Math.round(maxDim * vh / vw); }
-      else { canvas.height = maxDim; canvas.width = Math.round(maxDim * vw / vh); }
-    } else {
-      canvas.width = maxDim; canvas.height = Math.round(maxDim * 3/4); // fallback if metadata isn't ready yet
-    }
+    // Size the output canvas to the SAME aspect ratio as the visible
+    // .camera-stage box (read live from the DOM, so it always tracks the
+    // CSS), not the raw sensor ratio. This is what makes the saved photo a
+    // true match of the cover-cropped live preview instead of suddenly
+    // showing extra field of view the person never saw on screen.
+    const stageEl = $('cameraStage');
+    const stageRatio = (stageEl.clientWidth / stageEl.clientHeight) || (4/3);
+    if(stageRatio >= 1){ canvas.width = maxDim; canvas.height = Math.round(maxDim / stageRatio); }
+    else { canvas.height = maxDim; canvas.width = Math.round(maxDim * stageRatio); }
     const ctx = canvas.getContext('2d');
     // Mirror the capture exactly when (and only when) the live preview is
     // mirrored — never mirror twice, never mirror only one of the two.
@@ -2088,10 +2101,11 @@
         let filterStr = getCanvasFilterString();
         if(state.flashOn) filterStr += ' brightness(1.12)';
         ctx.filter = filterStr;
-        // Draw the FULL camera frame (no source cropping) since the
-        // preview now also shows the full frame — field of view, zoom and
-        // framing match the preview exactly.
-        ctx.drawImage(video, 0, 0, vw, vh, 0, 0, canvas.width, canvas.height);
+        // Crop the source frame the same way object-fit:cover crops the
+        // <video> on screen, so field of view, zoom and framing match the
+        // live preview exactly — no black bars, no mismatch.
+        const src = coverSrcRect(vw, vh, canvas.width, canvas.height);
+        ctx.drawImage(video, src.x, src.y, src.width, src.height, 0, 0, canvas.width, canvas.height);
         if(state.room.effect !== 'none'){
           ctx.filter = 'none';
           ctx.drawImage(effectsCanvas, 0,0, canvas.width, canvas.height);
