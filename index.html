@@ -27,15 +27,14 @@
     --font-body: 'Inter', system-ui, sans-serif;
     color-scheme: light;
     /* The top navbar is intentionally NOT part of the light/dark swap below:
-       it keeps this same soft-pink frosted look in both themes. --nav-bg
-       must stay fully OPAQUE (alpha = 1) — any transparency here lets the
-       backdrop-filter blur pick up whatever page background sits behind it,
-       and in dark mode that page background is near-black, which muddies
-       the pink into grey even though this variable itself never changes.
-       --nav-ink is fixed to the light theme's dark ink so the brand text
-       stays legible against this constant light-pink bar even when the
-       rest of the UI flips to light text-on-dark. */
-    --nav-bg: #FDEBF0;
+       it keeps this same soft-pink frosted look in both themes (that's the
+       whole fix — previously it used a plain translucent white, which reads
+       as pink only when blurred over the light pink page background, and
+       turns muddy grey once the page behind it goes dark). --nav-ink is
+       fixed to the light theme's dark ink so the brand text stays legible
+       against that constant light-pink bar even when the rest of the UI
+       flips to light text-on-dark. */
+    --nav-bg: rgba(253, 235, 240, 0.88);
     --nav-ink: #2B2622;
   }
   @media (prefers-color-scheme: dark){
@@ -113,7 +112,7 @@
 
   /* ---------- shared bits ---------- */
   .eyebrow{ font-size: 12.5px; color: var(--rose-deep); font-weight: 600; margin-bottom: 10px; }
-  .top-nav{ position: sticky; top:0; z-index:10; display:flex; align-items:center; justify-content: space-between; padding: 14px 4px; margin: 0 -20px 6px; padding-left:20px; padding-right:20px; background: var(--nav-bg); backdrop-filter: blur(18px) saturate(160%); -webkit-backdrop-filter: blur(18px) saturate(160%); }
+  .top-nav{ position: sticky; top:0; z-index:10; display:flex; align-items:center; justify-content: space-between; min-height:66px; padding: 14px 4px; margin: 0 -20px 6px; padding-left:20px; padding-right:20px; background: var(--nav-bg); backdrop-filter: blur(18px) saturate(160%); -webkit-backdrop-filter: blur(18px) saturate(160%); }
   .brand{ font-family: var(--font-display); font-weight: 700; font-size: 17px; display:flex; align-items:center; gap:8px; color: var(--nav-ink); }
   .brand-dot{ width:9px; height:9px; border-radius:50%; background: linear-gradient(135deg, var(--rose), var(--blush)); }
   .back-btn{ width:38px; height:38px; border-radius:50%; background: var(--card); border:1px solid var(--line); display:flex; align-items:center; justify-content:center; box-shadow: 0 2px 8px rgba(0,0,0,0.04); transition: transform .15s ease; }
@@ -537,9 +536,9 @@
       <div class="mock-strip reveal">
         <div class="mock-frame">
           <div class="strip">
-            <div class="mock-cell"><img src="images/1.jpg" alt="" onerror="this.remove()"></div>
-            <div class="mock-cell"><img src="images/strip2.png" alt="" onerror="this.remove()"></div>
             <div class="mock-cell"><img src="images/strip1.png" alt="" onerror="this.remove()"></div>
+            <div class="mock-cell"><img src="images/strip2.png" alt="" onerror="this.remove()"></div>
+            <div class="mock-cell"><img src="images/1.jpg" alt="" onerror="this.remove()"></div>
           </div>
           <div class="strip">
             <div class="mock-cell"><img src="images/2.jpg" alt="" onerror="this.remove()"></div>
