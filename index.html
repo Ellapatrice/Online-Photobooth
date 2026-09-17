@@ -304,7 +304,7 @@
   .photo-progress{ font-size: 12.5px; font-weight:700; color: var(--rose-deep); }
 
   .camera-stage{ position:relative; border-radius: var(--radius-lg); overflow:hidden; background: #1c1618; aspect-ratio: 4/3; box-shadow: var(--shadow); }
-  .camera-stage video{ width:100%; height:100%; object-fit:cover; display:block; }
+  .camera-stage video{ width:100%; height:100%; object-fit:contain; display:block; }
   .camera-stage video.mirror{ transform: scaleX(-1); }
   .camera-stage.f-natural video{ filter: brightness(1.04) saturate(1.05) contrast(1.01); }
   .camera-stage.f-soft video{ filter: brightness(1.08) contrast(0.94) saturate(0.97); }
@@ -1128,7 +1128,7 @@
       if(!deviceId) state.currentFacing = wantsFacing;
       $('cameraVideo').srcObject = stream;
       $('camPlaceholder').style.display = 'none';
-      $('cameraVideo').addEventListener('loadedmetadata', sizeEffectsCanvas, {once:true});
+      $('cameraVideo').addEventListener('loadedmetadata', onVideoMetadata, {once:true});
       updateMirrorClass();
     }catch(err){
       $('camPlaceholder').style.display = 'flex';
@@ -1326,6 +1326,23 @@
     const dpr = Math.min(window.devicePixelRatio || 1, 2);
     canvas.width  = Math.round(stage.clientWidth  * dpr);
     canvas.height = Math.round(stage.clientHeight * dpr);
+  }
+  /* Make the preview box's aspect ratio match the actual camera frame
+     (video.videoWidth / video.videoHeight) instead of a hardcoded 4:3 box.
+     Combined with object-fit:contain above, this guarantees the preview
+     always shows the FULL, unzoomed, uncropped camera frame — matching
+     the capture exactly — instead of being forced into a differently-
+     shaped container that would crop or zoom the image. */
+  function syncStageAspect(){
+    const video = $('cameraVideo');
+    const vw = video.videoWidth, vh = video.videoHeight;
+    if(vw > 0 && vh > 0){
+      $('cameraStage').style.aspectRatio = vw + ' / ' + vh;
+    }
+  }
+  function onVideoMetadata(){
+    syncStageAspect();
+    sizeEffectsCanvas();
   }
   window.addEventListener('resize', ()=>{ if($('screen-camera').classList.contains('active')) sizeEffectsCanvas(); });
 
@@ -1972,10 +1989,10 @@
         slot.appendChild(img);
         slot.title = 'Tap to retake';
         slot.style.cursor = 'pointer';
-        slot.addEventListener('click', ()=>{
+        slot.addEventListener('click', async ()=>{
           state.photoIndex = i;
           updateCameraProgress();
-          $('btnShutter').disabled = false;
+          await ensureCameraReady();
         });
       } else {
         slot.textContent = i+1;
@@ -2036,8 +2053,11 @@
      rectangle that produces the same result as CSS "object-fit: cover"
      (object-position: center) when drawn into a dw x dh destination — i.e.
      crop the longer axis symmetrically instead of stretching. This is the
-     same cover-crop math the AR face mapper (makeMapper) already relies on,
-     just expressed the other direction: display box -> source rectangle. */
+     same cover-crop math the AR face mapper (makeMapper) relies on, just
+     expressed the other direction: display box -> source rectangle. Used
+     when compositing captured photos (which can now be any aspect ratio)
+     into the fixed-size cells of the final photo strip, so they fill each
+     cell without being stretched/distorted. */
   function coverSourceRect(sw, sh, dw, dh){
     const srcRatio = sw / sh, dstRatio = dw / dh;
     let sx = 0, sy = 0, sWidth = sw, sHeight = sh;
@@ -2061,24 +2081,32 @@
     if(state.flashOn) flash.classList.add('go-strong'); else flash.classList.add('go');
 
     const canvas = document.createElement('canvas');
-    const size = 640;
-    canvas.width = size; canvas.height = size * 3/4;
+    const vw = video.videoWidth, vh = video.videoHeight;
+    const maxDim = 640;
+    // Size the output canvas to the SAME aspect ratio as the actual camera
+    // frame (never a hardcoded 4:3/16:9 guess), matching the live preview
+    // which now also displays the full, uncropped frame via
+    // object-fit:contain + a dynamically-matched stage aspect ratio.
+    if(vw > 0 && vh > 0){
+      if(vw >= vh){ canvas.width = maxDim; canvas.height = Math.round(maxDim * vh / vw); }
+      else { canvas.height = maxDim; canvas.width = Math.round(maxDim * vw / vh); }
+    } else {
+      canvas.width = maxDim; canvas.height = Math.round(maxDim * 3/4); // fallback if metadata isn't ready yet
+    }
     const ctx = canvas.getContext('2d');
     // Mirror the capture exactly when (and only when) the live preview is
     // mirrored — never mirror twice, never mirror only one of the two.
     const mirrored = isPreviewMirrored();
     if(mirrored){ ctx.translate(canvas.width,0); ctx.scale(-1,1); } // mirror to match preview
     try{
-      const vw = video.videoWidth, vh = video.videoHeight;
       if(vw > 0 && vh > 0){
-        // Use the actual camera frame dimensions (never CSS/client size) and
-        // replicate the exact object-fit:cover crop the <video> shows, so
-        // field of view, zoom and framing match the live preview precisely.
-        const { sx, sy, sWidth, sHeight } = coverSourceRect(vw, vh, canvas.width, canvas.height);
         let filterStr = getCanvasFilterString();
         if(state.flashOn) filterStr += ' brightness(1.12)';
         ctx.filter = filterStr;
-        ctx.drawImage(video, sx, sy, sWidth, sHeight, 0, 0, canvas.width, canvas.height);
+        // Draw the FULL camera frame (no source cropping) since the
+        // preview now also shows the full frame — field of view, zoom and
+        // framing match the preview exactly.
+        ctx.drawImage(video, 0, 0, vw, vh, 0, 0, canvas.width, canvas.height);
         if(state.room.effect !== 'none'){
           ctx.filter = 'none';
           ctx.drawImage(effectsCanvas, 0,0, canvas.width, canvas.height);
@@ -2125,15 +2153,31 @@
     });
   }
 
-  $('btnRetake').addEventListener('click', ()=>{
+  /* Defensive guard used by every "go back to the camera" action (Retake,
+     next photo, Retake all). The stream is never intentionally stopped
+     after a capture, but if the underlying track ever did end (backgrounded
+     tab, OS reclaiming the camera, etc.) this restarts it and waits for a
+     fresh frame before the shutter is re-enabled, instead of leaving the
+     button clickable against a dead/frozen preview. */
+  async function ensureCameraReady(){
+    const track = state.localStream && state.localStream.getVideoTracks()[0];
+    if(!track || track.readyState !== 'live'){
+      await startCamera(state.currentFacing, state.currentDeviceId);
+    }
+    $('btnShutter').disabled = false;
+  }
+
+  $('btnRetake').addEventListener('click', async ()=>{
     send({type:'photoStatus', id: state.me.id, status:'retaking'});
     updatePeerStripStatus(state.me.id, 'retaking');
+    state.lastCapturedDataUrl = null; // clear the previous capture
     updateCameraProgress();
-    $('btnShutter').disabled = false;
     goTo('screen-camera', {replace:true});
+    await ensureCameraReady();
   });
-  $('btnUsePhoto').addEventListener('click', ()=>{
+  $('btnUsePhoto').addEventListener('click', async ()=>{
     state.room.photos[state.me.id][state.photoIndex] = state.lastCapturedDataUrl;
+    state.lastCapturedDataUrl = null;
     send({type:'photoStatus', id: state.me.id, status:'idle'});
     updatePeerStripStatus(state.me.id, 'idle');
 
@@ -2149,8 +2193,8 @@
     } else {
       state.photoIndex = next;
       updateCameraProgress();
-      $('btnShutter').disabled = false;
       goTo('screen-camera', {replace:true});
+      await ensureCameraReady();
     }
   });
 
@@ -2239,7 +2283,8 @@
         const y = pad + i*(cellH+gap);
         roundRect(ctx, pad, y, cellW, cellH, 16);
         ctx.save(); ctx.clip();
-        ctx.drawImage(img, pad, y, cellW, cellH);
+        const { sx, sy, sWidth, sHeight } = coverSourceRect(img.width, img.height, cellW, cellH);
+        ctx.drawImage(img, sx, sy, sWidth, sHeight, pad, y, cellW, cellH);
         ctx.restore();
         loaded++;
         if(loaded === photos.length) drawFooter();
@@ -2284,10 +2329,13 @@
       }
     }, 'image/jpeg', 0.95);
   });
-  $('btnRetakeAll').addEventListener('click', ()=>{
+  $('btnRetakeAll').addEventListener('click', async ()=>{
     state.photoIndex = 0;
     state.room.photos[state.me.id] = [];
+    state.lastCapturedDataUrl = null;
+    updateCameraProgress();
     goTo('screen-camera', {replace:true});
+    await ensureCameraReady();
   });
   $('btnCreateAnother').addEventListener('click', ()=>{
     if(state.channel){ send({type:'leave', id: state.me.id}); state.channel.close(); state.channel=null; }
