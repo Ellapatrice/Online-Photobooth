@@ -770,8 +770,27 @@
       el.classList.toggle('done', i < activeIdx);
     });
   }
+  /* Single source of truth for "the camera screen's shutter is in its
+     default, ready-to-shoot state": no pending countdown, no disabled
+     button. This must run both when we ENTER screen-camera (so a shutter
+     left disabled from a previous, interrupted attempt never leaks into a
+     fresh session) and when we LEAVE it (so a countdown ticking in the
+     background can't silently fire capturePhoto()/showReview() while the
+     person is off reselecting a layout). Without this, disabling the
+     button on tap (below) had only one re-enable path — ensureCameraReady(),
+     wired solely to Retake/Use Photo/Retake All — so any other way of
+     leaving mid-countdown (e.g. the header back button) left it stuck. */
+  function resetShutterState(){
+    clearTimeout(state.countdownTimer);
+    const overlay = $('countdownOverlay');
+    if(overlay) overlay.classList.remove('show');
+    const shutter = $('btnShutter');
+    if(shutter) shutter.disabled = false;
+  }
+
   function goTo(id, opts){
     opts = opts || {};
+    if(id === 'screen-camera') resetShutterState();
     qsa('.screen').forEach(s => s.classList.remove('active'));
     $(id).classList.add('active');
     if(!opts.replace){ state.screenStack.push(id); }
@@ -782,6 +801,7 @@
   }
   $('backBtn').addEventListener('click', ()=>{
     if(state.screenStack.length <= 1) return;
+    if($('screen-camera').classList.contains('active')) resetShutterState();
     state.screenStack.pop();
     const prev = state.screenStack[state.screenStack.length-1];
     qsa('.screen').forEach(s => s.classList.remove('active'));
