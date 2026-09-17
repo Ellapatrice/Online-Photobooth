@@ -409,6 +409,41 @@
   .final-actions{ display:grid; grid-template-columns: 1fr 1fr; gap:10px; margin-top: 10px; }
   .final-actions .btn{ width:100%; }
 
+  /* ---------- decorate (stickers + doodles) ---------- */
+  .deco-stage{ position:relative; border-radius: var(--radius-lg); overflow:hidden; box-shadow: var(--shadow); background:#1c1618; margin: 4px 0 18px; touch-action:none; }
+  .deco-stage canvas.deco-base{ display:block; width:100%; height:auto; }
+  .deco-draw-svg{ position:absolute; inset:0; width:100%; height:100%; }
+  .deco-draw-svg.no-events{ pointer-events:none; }
+  .deco-sticker-layer{ position:absolute; inset:0; }
+  .deco-sticker-layer.no-events{ pointer-events:none; }
+  .deco-sticker{ position:absolute; width:18%; aspect-ratio:1/1; touch-action:none; cursor:grab; }
+  .deco-sticker svg{ width:100%; height:100%; display:block; overflow:visible; filter: drop-shadow(0 4px 10px rgba(0,0,0,0.25)); }
+  .deco-sticker .deco-handle{ position:absolute; width:24px; height:24px; border-radius:50%; display:flex; align-items:center; justify-content:center; opacity:0; transform:scale(.6); transition: opacity .15s ease, transform .15s ease; pointer-events:none; }
+  .deco-sticker.selected{ outline: 1.5px dashed rgba(255,255,255,0.6); outline-offset:6px; }
+  .deco-sticker.selected .deco-handle{ opacity:1; transform:scale(1); pointer-events:auto; }
+  .deco-sticker .handle-delete{ top:-12px; left:-12px; background:#fff; color:#C46E89; font-size:12px; font-weight:700; box-shadow:0 2px 8px rgba(0,0,0,.3); }
+  .deco-sticker .handle-resize{ bottom:-12px; right:-12px; background: var(--rose-deep); border:2px solid #fff; box-shadow:0 2px 8px rgba(0,0,0,.3); cursor:nwse-resize; }
+  .deco-mode-tabs{ display:flex; gap:8px; margin-bottom:14px; }
+  .deco-mode-tabs .tab-pill{ flex:1; }
+  .deco-panel{ display:none; }
+  .deco-panel.show{ display:block; }
+  .sticker-scroll{ display:flex; gap:10px; overflow-x:auto; padding: 2px 2px 8px; margin: 0 -20px; padding-left:20px; padding-right:20px; scrollbar-width:none; }
+  .sticker-scroll::-webkit-scrollbar{ display:none; }
+  .sticker-swatch{ flex-shrink:0; width:56px; height:56px; border-radius:16px; background: var(--card); border:1.5px solid var(--line); display:flex; align-items:center; justify-content:center; padding:10px; transition: transform .15s ease, border-color .15s ease; }
+  .sticker-swatch:active{ transform: scale(0.92); }
+  .sticker-swatch svg{ width:100%; height:100%; }
+  .pen-row{ display:flex; align-items:center; gap:12px; flex-wrap:wrap; margin-bottom:14px; }
+  .pen-colors{ display:flex; gap:8px; }
+  .pen-color{ width:30px; height:30px; border-radius:50%; border:2.5px solid transparent; box-shadow: inset 0 0 0 1px var(--line); transition: transform .15s ease, border-color .15s ease; }
+  .pen-color.active{ border-color: var(--ink); transform: scale(1.12); }
+  .pen-sizes{ display:flex; align-items:center; gap:8px; margin-left:auto; }
+  .pen-size-btn{ width:34px; height:34px; border-radius:50%; background: var(--card); border:1.5px solid var(--line); display:flex; align-items:center; justify-content:center; }
+  .pen-size-btn.active{ border-color: var(--rose-deep); background: var(--blush-soft); }
+  .pen-size-btn .dot{ border-radius:50%; background: var(--ink); }
+  .deco-draw-tools{ display:flex; gap:10px; margin-bottom: 4px; }
+  .deco-draw-tools .btn{ width:auto; flex:1; padding:12px 16px; font-size:13.5px; }
+  .deco-caption{ text-align:center; color: var(--ink-soft); font-size:13.5px; margin: -6px 0 18px; }
+
   /* ---------- error / loading / empty ---------- */
   .state-block{ text-align:center; padding: 60px 20px; }
   .state-block .icon{ width:64px; height:64px; margin: 0 auto 20px; border-radius:50%; background: var(--blush-soft); display:flex; align-items:center; justify-content:center; }
@@ -522,6 +557,8 @@
     <span class="flow-connector"></span>
     <div class="flow-step" data-step="pick"><span class="dot"></span><span class="label">Pick</span></div>
     <span class="flow-connector"></span>
+    <div class="flow-step" data-step="decorate"><span class="dot"></span><span class="label">Decorate</span></div>
+    <span class="flow-connector"></span>
     <div class="flow-step" data-step="done"><span class="dot"></span><span class="label">Done</span></div>
   </nav>
 
@@ -536,9 +573,9 @@
       <div class="mock-strip reveal">
         <div class="mock-frame">
           <div class="strip">
-            <div class="mock-cell"><img src="images/strip1.png" alt="" onerror="this.remove()"></div>
-            <div class="mock-cell"><img src="images/strip2.png" alt="" onerror="this.remove()"></div>
             <div class="mock-cell"><img src="images/1.jpg" alt="" onerror="this.remove()"></div>
+            <div class="mock-cell"><img src="images/strip2.png" alt="" onerror="this.remove()"></div>
+            <div class="mock-cell"><img src="images/strip1.png" alt="" onerror="this.remove()"></div>
           </div>
           <div class="strip">
             <div class="mock-cell"><img src="images/2.jpg" alt="" onerror="this.remove()"></div>
@@ -661,13 +698,55 @@
     </div>
   </section>
 
+  <!-- 9.5 DECORATE: stickers + doodles -->
+  <section class="screen" id="screen-decorate">
+    <div class="picker-head" style="padding-bottom:14px;">
+      <h2>Decorate</h2>
+      <p>Stickers and doodles. Or skip it.</p>
+    </div>
+
+    <div class="deco-stage" id="decoStage">
+      <!-- #finalCanvas is moved in here while decorating, then moved back into
+           .final-canvas-holder on Skip/Finish -->
+      <svg class="deco-draw-svg no-events" id="decoDrawSvg" xmlns="http://www.w3.org/2000/svg"></svg>
+      <div class="deco-sticker-layer" id="decoStickerLayer"></div>
+    </div>
+
+    <div class="deco-mode-tabs">
+      <button class="tab-pill active" id="decoTabStickers" type="button">✨ Stickers</button>
+      <button class="tab-pill" id="decoTabDraw" type="button">✏️ Draw</button>
+    </div>
+
+    <div class="deco-panel show" id="decoPanelStickers">
+      <div class="sticker-scroll" id="stickerScroll"></div>
+      <p class="deco-caption">Tap a sticker to add it, then drag, spin the pink handle to resize/rotate, or tap the ✕ to remove.</p>
+    </div>
+
+    <div class="deco-panel" id="decoPanelDraw">
+      <div class="pen-row">
+        <div class="pen-colors" id="penColors"></div>
+        <div class="pen-sizes" id="penSizes"></div>
+      </div>
+      <div class="deco-draw-tools">
+        <button class="btn btn-secondary" id="btnDecoUndo">Undo stroke</button>
+        <button class="btn btn-secondary" id="btnDecoClearDraw">Clear doodles</button>
+      </div>
+      <p class="deco-caption">Draw right on the strip with your finger or mouse.</p>
+    </div>
+
+    <div class="btn-row" style="margin-top:6px;">
+      <button class="btn btn-secondary" id="btnDecoSkip">Skip</button>
+      <button class="btn btn-primary" id="btnDecoFinish">Finish</button>
+    </div>
+  </section>
+
   <!-- 10. FINAL STRIP -->
   <section class="screen" id="screen-final">
     <div class="final-wrap">
       <div class="eyebrow">All done</div>
       <h2 class="section-title" style="margin-bottom:6px;">Your memories are ready.</h2>
       <p style="color:var(--ink-soft); font-size:14px;">Saved from your booth session.</p>
-      <div class="final-canvas-holder"><canvas id="finalCanvas"></canvas></div>
+      <div class="final-canvas-holder" id="finalCanvasHolder"><canvas id="finalCanvas"></canvas></div>
       <div class="final-actions">
         <button class="btn btn-primary" id="btnDownload">Download</button>
         <button class="btn btn-secondary" id="btnShare">Share</button>
@@ -797,6 +876,24 @@
     {id:'butterflies', label:'Butterflies', emoji:'🦋'},
   ];
 
+  /* Stickers for the Decorate screen — small vector SVGs (viewBox 0 0 64 64)
+     built from the app's own palette, so nothing here is a copied or
+     licensed image asset. Each is used both for the picker thumbnail and,
+     rasterized via an Image, to bake onto the final canvas. */
+  const STICKER_DEFS = [
+    { id:'heart', svg:'<path d="M32 54C14 42 6 31 6 20.5 6 12 12.5 6 20.5 6 26 6 30 9 32 13 34 9 38 6 43.5 6 51.5 6 58 12 58 20.5 58 31 50 42 32 54Z" fill="#E7899E"/>' },
+    { id:'bow', svg:'<path d="M32 32 8 14c-3 9 1 17 10 20-9 3-13 11-10 20L32 32Z" fill="#D98CA3"/><path d="M32 32 56 14c3 9-1 17-10 20 9 3 13 11 10 20L32 32Z" fill="#EBAABC"/><circle cx="32" cy="32" r="7" fill="#C46E89"/>' },
+    { id:'star', svg:'<path d="M32 4 39 24 60 24 43 37 49 58 32 45 15 58 21 37 4 24 25 24Z" fill="#E8B23D"/>' },
+    { id:'paw', svg:'<ellipse cx="32" cy="42" rx="16" ry="13" fill="#D98CA3"/><circle cx="12" cy="22" r="8" fill="#D98CA3"/><circle cx="27" cy="10" r="8" fill="#D98CA3"/><circle cx="45" cy="10" r="8" fill="#D98CA3"/><circle cx="56" cy="24" r="8" fill="#D98CA3"/>' },
+    { id:'flower', svg:'<g fill="#F0A6BE"><circle cx="32" cy="14" r="11"/><circle cx="50" cy="27" r="11"/><circle cx="43" cy="48" r="11"/><circle cx="21" cy="48" r="11"/><circle cx="14" cy="27" r="11"/></g><circle cx="32" cy="32" r="9" fill="#E8B23D"/>' },
+    { id:'kitty', svg:'<path d="M14 16 6 4 24 12Z" fill="#C46E89"/><path d="M50 16 58 4 40 12Z" fill="#C46E89"/><circle cx="32" cy="34" r="22" fill="#FFF6F8"/><circle cx="23" cy="32" r="3.4" fill="#2B2622"/><circle cx="41" cy="32" r="3.4" fill="#2B2622"/><path d="M32 40 28 45 36 45Z" fill="#D98CA3"/>' },
+    { id:'kiss', svg:'<path d="M8 26c4-8 12-10 16-4 2-4 6-6 10-4-2-6 4-10 10-8-2 6 4 10-2 14-6 4-14 4-20 0-4 4-10 6-14 2Z" fill="#C46E89"/><path d="M34 26c4-8 12-10 16-4 2-4 6-6 10-4-2-6 4-10 10-8-2 6 4 10-2 14-6 4-14 4-20 0-4 4-10 6-14 2Z" fill="#C46E89"/>' },
+    { id:'sparkle', svg:'<path d="M32 6 36 26 56 30 36 34 32 54 28 34 8 30 28 26Z" fill="#F4CBD6"/><path d="M50 44 52 51 59 53 52 55 50 62 48 55 41 53 48 51Z" fill="#E8B23D"/><path d="M12 6 13.5 11 19 12.5 13.5 14 12 19 10.5 14 5 12.5 10.5 11Z" fill="#E8B23D"/>' },
+  ];
+
+  const PEN_COLORS = ['#D98CA3', '#C46E89', '#E8B23D', '#FFFFFF', '#2B2622'];
+  const PEN_SIZES = [4, 8, 14];
+
   /* ============ app state ============ */
   const state = {
     screenStack: ['screen-landing'],
@@ -819,6 +916,7 @@
     currentDeviceId: null,
     mirrored: true, // kept in sync with the live preview by updateMirrorClass()
     zoom: 1,
+    decor: { stickers: [], strokes: [] }, // Decorate screen: placed stickers + freehand doodle strokes
     flashOn: false,
     photoIndex: 0,
     frameType: 'simple',
@@ -846,9 +944,10 @@
     'screen-filter': 'frame',
     'screen-camera': 'shoot',
     'screen-review': 'pick',
+    'screen-decorate': 'decorate',
     'screen-final': 'done'
   };
-  const STEP_ORDER = ['style','frame','shoot','pick','done'];
+  const STEP_ORDER = ['style','frame','shoot','pick','decorate','done'];
   function updateStepper(screenId){
     const stepper = $('flowStepper');
     const active = SCREEN_STEP[screenId];
@@ -2461,8 +2560,8 @@
       for(let i = 0; i < state.room.photoCount; i++){ if(!photos[i]){ next = i; break; } }
     }
     if(next === -1){
-      buildFinalStrip();
-      goTo('screen-final', {replace:true});
+      await openDecorateScreen();
+      goTo('screen-decorate', {replace:true});
     } else {
       state.photoIndex = next;
       updateCameraProgress();
@@ -2538,49 +2637,362 @@
     }
     ctx.closePath(); ctx.fill();
   }
-  function buildFinalStrip(){
-    const photos = state.room.photos[state.me.id] || [];
+  /* Draws just the photos + frame + footer (no stickers/doodles) onto the
+     given canvas, resizing it to fit. Returns a Promise that resolves with
+     the chosen frame once every photo has loaded and been drawn — shared by
+     the Decorate screen's live preview and the final bake, so there's one
+     source of truth for the strip layout. */
+  function renderStripBase(canvas){
+    return new Promise((resolve) => {
+      const photos = state.room.photos[state.me.id] || [];
+      const ctx = canvas.getContext('2d');
+      const cellW = 480, cellH = 360, pad = 24, gap = 18;
+      canvas.width = cellW + pad*2;
+      canvas.height = pad*2 + photos.length*cellH + (photos.length-1)*gap + 70;
+
+      const frame = paintFrameBackground(ctx, canvas.width, canvas.height);
+
+      let loaded = 0;
+      if(photos.length === 0){ drawFooter(); resolve(frame); return; }
+      photos.forEach((src, i) => {
+        const img = new Image();
+        img.onload = () => {
+          const y = pad + i*(cellH+gap);
+          ctx.fillStyle = '#1c1618'; // same background as the Shoot/Pick screens, shows in any letterbox margin
+          roundRect(ctx, pad, y, cellW, cellH, 16);
+          ctx.save(); ctx.clip();
+          const rect = containDestRect(img.width, img.height, cellW, cellH);
+          ctx.drawImage(img, pad + rect.x, y + rect.y, rect.width, rect.height);
+          ctx.restore();
+          loaded++;
+          if(loaded === photos.length){ drawFooter(); resolve(frame); }
+        };
+        img.src = src;
+      });
+      function roundRect(ctx,x,y,w,h,r){
+        ctx.beginPath();
+        ctx.moveTo(x+r,y);
+        ctx.arcTo(x+w,y,x+w,y+h,r);
+        ctx.arcTo(x+w,y+h,x,y+h,r);
+        ctx.arcTo(x,y+h,x,y,r);
+        ctx.arcTo(x,y,x+w,y,r);
+        ctx.closePath(); ctx.fill();
+      }
+      function drawFooter(){
+        ctx.fillStyle = frameIsDark(frame) ? 'rgba(255,255,255,0.85)' : '#C46E89';
+        ctx.font = '600 22px Plus Jakarta Sans, sans-serif';
+        ctx.textAlign = 'center';
+        ctx.fillText('Booth · ' + state.room.code, canvas.width/2, canvas.height - 26);
+      }
+    });
+  }
+  function buildFinalStrip(){ return renderStripBase($('finalCanvas')); }
+
+  /* ============ decorate: stickers + doodles ============ */
+  function svgMarkup(inner, extraAttrs){
+    return '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64"' + (extraAttrs||'') + '>' + inner + '</svg>';
+  }
+  function stickerImg(def){
+    const uri = 'data:image/svg+xml;utf8,' + encodeURIComponent(svgMarkup(def.svg));
+    const img = new Image();
+    img.src = uri;
+    return img;
+  }
+  let decoMode = 'stickers';
+  let decoSelectedId = null;
+  let decoDrawing = null; // in-progress stroke while pointer is down
+
+  async function openDecorateScreen(){
+    const canvas = $('finalCanvas');
+    await renderStripBase(canvas);
+    canvas.classList.add('deco-base');
+    $('decoStage').insertBefore(canvas, $('decoStage').firstChild);
+
+    const svg = $('decoDrawSvg');
+    svg.setAttribute('viewBox', '0 0 ' + canvas.width + ' ' + canvas.height);
+
+    decoMode = 'stickers';
+    decoSelectedId = null;
+    setDecoMode('stickers');
+    renderStickerPalette();
+    renderPenControls();
+    rebuildStickerLayer();
+    rebuildStrokes();
+  }
+
+  function renderStickerPalette(){
+    const wrap = $('stickerScroll');
+    wrap.innerHTML = '';
+    STICKER_DEFS.forEach(def => {
+      const btn = document.createElement('button');
+      btn.type = 'button';
+      btn.className = 'sticker-swatch';
+      btn.setAttribute('aria-label', 'Add ' + def.id + ' sticker');
+      btn.innerHTML = svgMarkup(def.svg);
+      btn.addEventListener('click', () => addSticker(def.id));
+      wrap.appendChild(btn);
+    });
+  }
+
+  function renderPenControls(){
+    const colorWrap = $('penColors');
+    colorWrap.innerHTML = '';
+    PEN_COLORS.forEach((c, i) => {
+      const b = document.createElement('button');
+      b.type = 'button';
+      b.className = 'pen-color' + (i === 0 ? ' active' : '');
+      b.style.background = c;
+      b.dataset.color = c;
+      b.setAttribute('aria-label', 'Pen color');
+      b.addEventListener('click', () => {
+        qsa('.pen-color').forEach(el => el.classList.remove('active'));
+        b.classList.add('active');
+        state.penColor = c;
+      });
+      colorWrap.appendChild(b);
+    });
+    state.penColor = PEN_COLORS[0];
+
+    const sizeWrap = $('penSizes');
+    sizeWrap.innerHTML = '';
+    PEN_SIZES.forEach((s, i) => {
+      const b = document.createElement('button');
+      b.type = 'button';
+      b.className = 'pen-size-btn' + (i === 0 ? ' active' : '');
+      b.setAttribute('aria-label', 'Pen thickness');
+      const dot = document.createElement('span');
+      dot.className = 'dot';
+      dot.style.width = dot.style.height = (6 + i*4) + 'px';
+      b.appendChild(dot);
+      b.addEventListener('click', () => {
+        qsa('.pen-size-btn').forEach(el => el.classList.remove('active'));
+        b.classList.add('active');
+        state.penSize = s;
+      });
+      sizeWrap.appendChild(b);
+    });
+    state.penSize = PEN_SIZES[0];
+  }
+
+  function setDecoMode(mode){
+    decoMode = mode;
+    $('decoTabStickers').classList.toggle('active', mode === 'stickers');
+    $('decoTabDraw').classList.toggle('active', mode === 'draw');
+    $('decoPanelStickers').classList.toggle('show', mode === 'stickers');
+    $('decoPanelDraw').classList.toggle('show', mode === 'draw');
+    $('decoStickerLayer').classList.toggle('no-events', mode !== 'stickers');
+    $('decoDrawSvg').classList.toggle('no-events', mode !== 'draw');
+    if(mode !== 'stickers') selectSticker(null);
+  }
+  $('decoTabStickers').addEventListener('click', () => setDecoMode('stickers'));
+  $('decoTabDraw').addEventListener('click', () => setDecoMode('draw'));
+
+  /* ---- stickers: add / drag / resize+rotate / delete ---- */
+  function addSticker(defId){
+    const s = { uid: randomId(), defId, x:50, y:50, size:18, rot:0 };
+    state.decor.stickers.push(s);
+    mountSticker(s);
+    selectSticker(s.uid);
+  }
+  function rebuildStickerLayer(){
+    $('decoStickerLayer').innerHTML = '';
+    state.decor.stickers.forEach(mountSticker);
+  }
+  function mountSticker(s){
+    const def = STICKER_DEFS.find(d => d.id === s.defId) || STICKER_DEFS[0];
+    const el = document.createElement('div');
+    el.className = 'deco-sticker';
+    el.dataset.uid = s.uid;
+    el.innerHTML = svgMarkup(def.svg) +
+      '<div class="deco-handle handle-delete" data-role="delete">✕</div>' +
+      '<div class="deco-handle handle-resize" data-role="resize"></div>';
+    applyStickerTransform(el, s);
+    wireStickerPointer(el, s);
+    $('decoStickerLayer').appendChild(el);
+  }
+  function applyStickerTransform(el, s){
+    el.style.left = s.x + '%';
+    el.style.top = s.y + '%';
+    el.style.width = s.size + '%';
+    el.style.transform = 'translate(-50%,-50%) rotate(' + s.rot + 'deg)';
+  }
+  function selectSticker(uid){
+    decoSelectedId = uid;
+    qsa('.deco-sticker').forEach(el => el.classList.toggle('selected', el.dataset.uid === uid));
+  }
+  function wireStickerPointer(el, s){
+    const stage = $('decoStage');
+    el.addEventListener('pointerdown', (e) => {
+      if(decoMode !== 'stickers') return;
+      const role = e.target.dataset.role;
+      selectSticker(s.uid);
+      e.stopPropagation();
+      const stageRect = stage.getBoundingClientRect();
+      if(role === 'delete'){
+        state.decor.stickers = state.decor.stickers.filter(x => x.uid !== s.uid);
+        el.remove();
+        return;
+      }
+      el.setPointerCapture(e.pointerId);
+      const startX = e.clientX, startY = e.clientY;
+      const start = { x:s.x, y:s.y, size:s.size, rot:s.rot };
+      const centerPx = { x: stageRect.left + (s.x/100)*stageRect.width, y: stageRect.top + (s.y/100)*stageRect.height };
+      const startDist = Math.hypot(startX - centerPx.x, startY - centerPx.y) || 1;
+      const startAngle = Math.atan2(startY - centerPx.y, startX - centerPx.x);
+      function onMove(ev){
+        if(role === 'resize'){
+          const dist = Math.hypot(ev.clientX - centerPx.x, ev.clientY - centerPx.y);
+          const angle = Math.atan2(ev.clientY - centerPx.y, ev.clientX - centerPx.x);
+          const scaleRatio = dist / startDist;
+          s.size = Math.min(70, Math.max(6, start.size * scaleRatio));
+          s.rot = start.rot + (angle - startAngle) * (180/Math.PI);
+        } else {
+          const dx = ((ev.clientX - startX) / stageRect.width) * 100;
+          const dy = ((ev.clientY - startY) / stageRect.height) * 100;
+          s.x = Math.min(100, Math.max(0, start.x + dx));
+          s.y = Math.min(100, Math.max(0, start.y + dy));
+        }
+        applyStickerTransform(el, s);
+      }
+      function onUp(ev){
+        el.releasePointerCapture(e.pointerId);
+        el.removeEventListener('pointermove', onMove);
+        el.removeEventListener('pointerup', onUp);
+      }
+      el.addEventListener('pointermove', onMove);
+      el.addEventListener('pointerup', onUp);
+    });
+  }
+  $('decoStage').addEventListener('pointerdown', (e) => {
+    if(decoMode === 'stickers' && !e.target.closest('.deco-sticker')) selectSticker(null);
+  });
+
+  /* ---- freehand doodles ---- */
+  const SVGNS = 'http://www.w3.org/2000/svg';
+  function stagePoint(e){
+    const canvas = $('finalCanvas');
+    const rect = canvas.getBoundingClientRect();
+    const x = (e.clientX - rect.left) * (canvas.width / rect.width);
+    const y = (e.clientY - rect.top) * (canvas.height / rect.height);
+    return { x, y };
+  }
+  function pointsToPath(points){
+    if(points.length === 0) return '';
+    let d = 'M ' + points[0].x.toFixed(1) + ' ' + points[0].y.toFixed(1);
+    for(let i=1;i<points.length;i++) d += ' L ' + points[i].x.toFixed(1) + ' ' + points[i].y.toFixed(1);
+    return d;
+  }
+  function rebuildStrokes(){
+    const svg = $('decoDrawSvg');
+    qsa('path[data-stroke]', svg).forEach(p => p.remove());
+    state.decor.strokes.forEach(addStrokePathEl);
+  }
+  function addStrokePathEl(stroke){
+    const path = document.createElementNS(SVGNS, 'path');
+    path.setAttribute('data-stroke', '1');
+    path.setAttribute('d', pointsToPath(stroke.points));
+    path.setAttribute('fill', 'none');
+    path.setAttribute('stroke', stroke.color);
+    path.setAttribute('stroke-width', stroke.width);
+    path.setAttribute('stroke-linecap', 'round');
+    path.setAttribute('stroke-linejoin', 'round');
+    $('decoDrawSvg').appendChild(path);
+    return path;
+  }
+  $('decoDrawSvg').addEventListener('pointerdown', (e) => {
+    if(decoMode !== 'draw') return;
+    e.target.setPointerCapture(e.pointerId);
+    const pt = stagePoint(e);
+    decoDrawing = { color: state.penColor || PEN_COLORS[0], width: state.penSize || PEN_SIZES[0], points:[pt] };
+    decoDrawing.el = addStrokePathEl(decoDrawing);
+  });
+  $('decoDrawSvg').addEventListener('pointermove', (e) => {
+    if(decoMode !== 'draw' || !decoDrawing) return;
+    decoDrawing.points.push(stagePoint(e));
+    decoDrawing.el.setAttribute('d', pointsToPath(decoDrawing.points));
+  });
+  function endStroke(){
+    if(!decoDrawing) return;
+    if(decoDrawing.points.length > 1){
+      state.decor.strokes.push({ color: decoDrawing.color, width: decoDrawing.width, points: decoDrawing.points });
+    } else {
+      decoDrawing.el.remove();
+    }
+    decoDrawing = null;
+  }
+  $('decoDrawSvg').addEventListener('pointerup', endStroke);
+  $('decoDrawSvg').addEventListener('pointercancel', endStroke);
+  $('btnDecoUndo').addEventListener('click', () => {
+    state.decor.strokes.pop();
+    rebuildStrokes();
+  });
+  $('btnDecoClearDraw').addEventListener('click', () => {
+    state.decor.strokes = [];
+    rebuildStrokes();
+  });
+
+  function resetDecor(){
+    state.decor = { stickers: [], strokes: [] };
+    decoSelectedId = null;
+    decoDrawing = null;
+    const layer = $('decoStickerLayer'); if(layer) layer.innerHTML = '';
+    const svg = $('decoDrawSvg'); if(svg) qsa('path[data-stroke]', svg).forEach(p => p.remove());
+  }
+
+  /* Bakes the placed stickers + doodle strokes permanently onto #finalCanvas
+     (which already has the photos/frame/footer from renderStripBase), then
+     moves the canvas back into the Done screen and clears the editable
+     overlay layers. */
+  async function finishDecorate(bake){
     const canvas = $('finalCanvas');
     const ctx = canvas.getContext('2d');
-    const cellW = 480, cellH = 360, pad = 24, gap = 18;
-    canvas.width = cellW + pad*2;
-    canvas.height = pad*2 + photos.length*cellH + (photos.length-1)*gap + 70;
-
-    const frame = paintFrameBackground(ctx, canvas.width, canvas.height);
-
-    let loaded = 0;
-    if(photos.length === 0){ drawFooter(); return; }
-    photos.forEach((src, i) => {
-      const img = new Image();
-      img.onload = () => {
-        const y = pad + i*(cellH+gap);
-        ctx.fillStyle = '#1c1618'; // same background as the Shoot/Pick screens, shows in any letterbox margin
-        roundRect(ctx, pad, y, cellW, cellH, 16);
-        ctx.save(); ctx.clip();
-        const rect = containDestRect(img.width, img.height, cellW, cellH);
-        ctx.drawImage(img, pad + rect.x, y + rect.y, rect.width, rect.height);
+    if(bake){
+      // doodle strokes first (under stickers, matching the visual stacking in the editor)
+      state.decor.strokes.forEach(stroke => {
+        if(stroke.points.length < 2) return;
+        ctx.save();
+        ctx.strokeStyle = stroke.color;
+        ctx.lineWidth = stroke.width;
+        ctx.lineCap = 'round';
+        ctx.lineJoin = 'round';
+        ctx.beginPath();
+        ctx.moveTo(stroke.points[0].x, stroke.points[0].y);
+        for(let i=1;i<stroke.points.length;i++) ctx.lineTo(stroke.points[i].x, stroke.points[i].y);
+        ctx.stroke();
         ctx.restore();
-        loaded++;
-        if(loaded === photos.length) drawFooter();
-      };
-      img.src = src;
-    });
-    function roundRect(ctx,x,y,w,h,r){
-      ctx.beginPath();
-      ctx.moveTo(x+r,y);
-      ctx.arcTo(x+w,y,x+w,y+h,r);
-      ctx.arcTo(x+w,y+h,x,y+h,r);
-      ctx.arcTo(x,y+h,x,y,r);
-      ctx.arcTo(x,y,x+w,y,r);
-      ctx.closePath(); ctx.fill();
+      });
+      // stickers, loaded then drawn with their transform
+      await Promise.all(state.decor.stickers.map(s => new Promise(resolve => {
+        const def = STICKER_DEFS.find(d => d.id === s.defId) || STICKER_DEFS[0];
+        const img = stickerImg(def);
+        img.onload = () => {
+          const cx = (s.x/100) * canvas.width;
+          const cy = (s.y/100) * canvas.height;
+          const sizePx = (s.size/100) * canvas.width;
+          ctx.save();
+          ctx.translate(cx, cy);
+          ctx.rotate(s.rot * Math.PI/180);
+          ctx.drawImage(img, -sizePx/2, -sizePx/2, sizePx, sizePx);
+          ctx.restore();
+          resolve();
+        };
+        img.onerror = resolve;
+      })));
     }
-    function drawFooter(){
-      ctx.fillStyle = frameIsDark(frame) ? 'rgba(255,255,255,0.85)' : '#C46E89';
-      ctx.font = '600 22px Plus Jakarta Sans, sans-serif';
-      ctx.textAlign = 'center';
-      ctx.fillText('Booth · ' + state.room.code, canvas.width/2, canvas.height - 26);
-    }
+    canvas.classList.remove('deco-base');
+    $('finalCanvasHolder').appendChild(canvas);
+    resetDecor();
   }
+  $('btnDecoFinish').addEventListener('click', async () => {
+    await finishDecorate(true);
+    goTo('screen-final', {replace:true});
+  });
+  $('btnDecoSkip').addEventListener('click', async () => {
+    await finishDecorate(false);
+    goTo('screen-final', {replace:true});
+  });
+
+
   $('btnDownload').addEventListener('click', ()=>{
     const canvas = $('finalCanvas');
     const link = document.createElement('a');
@@ -2607,6 +3019,7 @@
     state.photoIndex = 0;
     state.room.photos[state.me.id] = [];
     state.lastCapturedDataUrl = null;
+    resetDecor();
     updateCameraProgress();
     goTo('screen-camera', {replace:true});
     await ensureCameraReady();
@@ -2623,6 +3036,7 @@
     state.frame = null;
     state.flashOn = false;
     state.zoom = 1;
+    resetDecor();
     qsa('.screen').forEach(s=>s.classList.remove('active'));
     $('screen-landing').classList.add('active');
     $('backBtn').style.display = 'none';
