@@ -303,7 +303,7 @@
   .room-chip{ font-size:12.5px; font-weight:600; color: var(--ink-soft); background: var(--blush-soft); padding: 6px 12px; border-radius: 999px; }
   .photo-progress{ font-size: 12.5px; font-weight:700; color: var(--rose-deep); }
 
-  .camera-stage{ position:relative; border-radius: var(--radius-lg); overflow:hidden; background: #1c1618; aspect-ratio: 4/3; box-shadow: var(--shadow); max-height: 62vh; margin: 0 auto; }
+  .camera-stage{ position:relative; border-radius: var(--radius-lg); overflow:hidden; background: #1c1618; aspect-ratio: 4/3; box-shadow: var(--shadow); }
   .camera-stage video{ width:100%; height:100%; object-fit:contain; display:block; }
   .camera-stage video.mirror{ transform: scaleX(-1); }
   .camera-stage.f-natural video{ filter: brightness(1.04) saturate(1.05) contrast(1.01); }
@@ -1327,44 +1327,18 @@
     canvas.width  = Math.round(stage.clientWidth  * dpr);
     canvas.height = Math.round(stage.clientHeight * dpr);
   }
-  /* Size the preview box itself to the camera's real aspect ratio, instead
-     of leaving it a fixed 4:3 box. A fixed box + object-fit:contain used to
-     letterbox the video whenever the sensor ratio didn't match 4:3 (e.g.
-     portrait ~9:16 selfie streams on phones), which showed up as black
-     bars/margins on the sides. Computing the box's own width/height from
-     the video's real dimensions (capped by max-height) means the video
-     fills the box exactly, with no bars, while still fitting the layout. */
-  function syncStageAspect(){
-    const video = $('cameraVideo');
-    const vw = video.videoWidth, vh = video.videoHeight;
-    const stage = $('cameraStage');
-    if(vw > 0 && vh > 0){
-      const containerWidth = stage.parentElement.clientWidth;
-      const maxHeightPx = window.innerHeight * 0.62;
-
-      let width = containerWidth;
-      let height = width * vh / vw;
-
-      if(height > maxHeightPx){
-        height = maxHeightPx;
-        width = height * vw / vh;
-      }
-
-      stage.style.aspectRatio = '';
-      stage.style.width = width + 'px';
-      stage.style.height = height + 'px';
-    }
-  }
+  /* NOTE: the preview box size/aspect-ratio itself is intentionally left as
+     the existing fixed layout (see .camera-stage above) — we do NOT resize
+     the container to the camera's raw sensor ratio, since that can be very
+     tall on Android (e.g. ~9:16) and would shift the surrounding UI.
+     object-fit:contain on the <video> already guarantees the full,
+     un-cropped, un-zoomed frame is shown inside that fixed-size box
+     (letterboxed if the sensor ratio differs), which is what keeps the
+     preview matching the actual camera frame without touching layout. */
   function onVideoMetadata(){
-    syncStageAspect();
     sizeEffectsCanvas();
   }
-  window.addEventListener('resize', ()=>{
-    if($('screen-camera').classList.contains('active')){
-      syncStageAspect();
-      sizeEffectsCanvas();
-    }
-  });
+  window.addEventListener('resize', ()=>{ if($('screen-camera').classList.contains('active')) sizeEffectsCanvas(); });
 
   /* ---------- run the landmarker once per new video frame ---------- */
   function trackFace(){
